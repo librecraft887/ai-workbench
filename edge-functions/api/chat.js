@@ -1,6 +1,6 @@
 import { researchCustomer as runCustomerResearch } from "../lib/research/service.js";
 import { createBochaSearch } from "../lib/research/providers/bocha.js";
-import { proposalFallback, normalizeProposal, proposalPrompt } from "../lib/proposal.js";
+import { proposalFallback, normalizeProposal, proposalPrompt, normalizeTrainingOverview } from "../lib/proposal.js";
 
 const SYSTEM_PROMPT = `你是“AI教研助手”，服务于培训、干部教育、终身教育、企业培训等教研场景。
 
@@ -842,6 +842,7 @@ ${JSON.stringify(rankedExternal.filter(x=>x.match_score>0).slice(0,6),null,2)}
     "client_needs_analysis": { "text": "", "source_ids": [] },
     "design_logic": { "text": "", "source_ids": [] }
   },
+  "training_overview": { "goals": "", "learning_methods": "", "expected_outputs": "" },
   "formal_schedule":[
     {
       "day":"",
@@ -853,6 +854,7 @@ ${JSON.stringify(rankedExternal.filter(x=>x.match_score>0).slice(0,6),null,2)}
       "source_type":"库内师资",
       "teacher_profile":"",
       "reason":"",
+      "source_ids":[],
       "evidence":""
     }
   ],
@@ -874,7 +876,7 @@ ${JSON.stringify(rankedExternal.filter(x=>x.match_score>0).slice(0,6),null,2)}
 - formal_schedule 数量尽量与时段数一致。
 - 正式课表只能从正式候选选择。
 - teacher_profile 只能复制正式候选中的 teacher_profile，不得补写任何候选中没有的学历、职务、兼职、成果或荣誉。
-- 推荐理由控制在2-3句，写出该课程如何回应需求、发展能力以及所处教学阶段；客户事实引用来源编号。
+- 推荐理由控制在1-2句，适当解释学习重点和能力目标；关联调研编号仅放source_ids，不写入正文。不要解释库内、正式库或测试数据等内部处理。
 - 如果正式候选不足，对应时段使用“待匹配”。
 - requirement_summary 必须直接使用上面的需求值，不要置空。`;
 
@@ -894,6 +896,7 @@ function normalizePlan(modelPlan, fallbackPlan, req) {
     assistant_message: modelPlan.assistant_message || fallbackPlan.assistant_message,
     requirement_summary: req,
     proposal: modelPlan.proposal,
+    training_overview: modelPlan.training_overview,
     formal_schedule:
       Array.isArray(modelPlan.formal_schedule) && modelPlan.formal_schedule.length
         ? modelPlan.formal_schedule
@@ -1045,6 +1048,17 @@ export async function onRequestPost(context) {
     enrichScheduleProfiles(plan, rankedFormal);
     const fallbackProposal = proposalFallback(req, plan.formal_schedule);
     plan.proposal = normalizeProposal(plan.proposal, fallbackProposal, research.sources);
+    plan.training_overview = normalizeTrainingOverview(scheduleInvalid ? null : plan.training_overview, req);
+    plan.formal_schedule = plan.formal_schedule.map(row => {
+      const match = rankedFormal.find(candidate => candidate.course_title === row.course_title && candidate.teacher_name === row.teacher_name);
+      const evidence = normalizedString(match?.evidence_note);
+      const sourceIds = [...new Set([
+        ...normalizedArray(row.source_ids),
+        ...[...String(row.reason || '').matchAll(/\[(S\d+)\]/g)].map(item => item[1])
+      ])];
+      const sourceLinks = research.sources.filter(source => sourceIds.includes(source.source_id)).map(source => ({ title: source.title || '客户相关背景资料', url: source.url }));
+      return { ...row, evidence: /^(?:正式)?测试(?:关系|数据|课程)?[。.!！\s]*$/.test(evidence) ? '' : evidence, evidence_sources: sourceLinks };
+    });
     plan.customer_research = research;
     plan.research_notice = research.status === 'succeeded' ? '' : research.status === 'skipped'
       ? '本项目按已确认需求设计，未开展客户公开资料调研。'
@@ -1076,7 +1090,7 @@ export async function onRequestGet(context) {
   const result={
     ok:true,
     service:"AI Workbench Chat API",
-    version:"1.3.0",
+    version:"1.3.1",
     clarification_before_plan:true,
     customer_research_configured:Boolean(context.env.DEEPSEEK_API_KEY),
     customer_research_provider:"deepseek_web_search",

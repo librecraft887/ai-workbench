@@ -44,7 +44,7 @@ test('real handlers prepare, research, and compose a sourced client proposal in 
     }
     events.push('faculty');
     if (url.includes('/teachers?')) return Response.json([{ business_code: 'T1', name: '库内老师', institution: '已核验单位', status: 'active', source_type: '库内师资', profile: '已核验简介', profile_status: 'verified' }]);
-    if (url.includes('/teacher_courses?')) return Response.json([{ teacher_business_code: 'T1', course_business_code: 'C1', confirmed_status: 'confirmed' }]);
+    if (url.includes('/teacher_courses?')) return Response.json([{ teacher_business_code: 'T1', course_business_code: 'C1', confirmed_status: 'confirmed', evidence_note: '正式测试关系' }]);
     if (url.includes('/courses?')) return Response.json([{ business_code: 'C1', title: '数据驱动经营', topics: '数据决策', audiences: '中层干部', status: 'active' }]);
     throw new Error(`unexpected request: ${url}`);
   };
@@ -63,6 +63,9 @@ test('real handlers prepare, research, and compose a sourced client proposal in 
     assert.equal(plan.requirement_summary.goals, requirement.goals);
     assert.deepEqual(plan.proposal.project_background, proposal.project_background);
     assert.equal(plan.formal_schedule[0].teacher_profile, '已核验简介');
+    assert.equal(plan.formal_schedule[0].evidence, '');
+    assert.ok(plan.training_overview.learning_methods);
+    assert.ok(plan.training_overview.expected_outputs);
     assert.equal(plan.customer_research.sources[0].source_id, 'S1');
   } finally { globalThis.fetch = original; }
 });
