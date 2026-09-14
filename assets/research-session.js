@@ -7,7 +7,7 @@
     module.exports.isActiveProject = api.isActiveProject;
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
-  const REQUEST_FIELDS = ['audience', 'industry', 'theme', 'days', 'sessions', 'goals'];
+  const REQUEST_FIELDS = ['customer_name', 'skip_research', 'audience', 'industry', 'theme', 'days', 'sessions', 'goals', 'business_challenges', 'learner_context', 'preferences'];
 
   function researchRequestFingerprint(request = {}) {
     return JSON.stringify(Object.fromEntries(REQUEST_FIELDS.map(field => [field, String(request?.[field] ?? '').trim()])));

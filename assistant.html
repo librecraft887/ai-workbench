@@ -6,8 +6,9 @@
 <title>AI教研助手</title>
 <script src="./assets/jszip.min.js"></script>
 <script src="./assets/research-display.js"></script>
-<script src="./assets/research-export.js"></script>
 <script src="./assets/research-session.js"></script>
+<script src="./assets/training-workflow.js"></script>
+<script src="./assets/proposal-display.js"></script>
 <style>
 :root{--bg:#07111f;--panel:rgba(16,33,56,.78);--line:rgba(103,185,255,.28);--text:#f4f8ff;--muted:#95a8c2;--cyan:#6de2ff;--blue:#5c8dff;--violet:#8f7cff;--green:#57e6b2;--warn:#ffcf66}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;background:#07111f;color:var(--text)}
@@ -33,7 +34,7 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;ba
     <div class="project-actions">
       <button class="btn primary" onclick="newProject()">＋ 新建项目</button>
       <button class="btn" onclick="openProjects()">我的方案</button>
-      <button class="btn warn" onclick="refreshResearch()">重新调研客户</button>
+      <button class="btn warn" onclick="refreshResearch()">重新调研并更新方案</button>
     </div>
   </div>
 
@@ -72,13 +73,13 @@ function uid(){return 'P'+Date.now().toString(36)+Math.random().toString(36).sli
 function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')}
 function xmlEsc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;')}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.style.display='none',2200)}
-function defaultAssistantText(){return '告诉我培训对象、主题和天数。关键条件缺失时，我会先问清楚。每个项目的对话和方案相互独立。'}
-function emptyResult(){resultBody.innerHTML='<div class="empty"><div><strong>等待生成正式方案</strong>当前项目确认需求后，将在这里展示结构化课表，并可下载 Word / Excel。</div></div>'}
+function defaultAssistantText(){return '请告诉我客户名称、培训对象、培训主题、天数，以及希望解决的问题或培养目标。我会通过对话补齐需求，再调研与本次培训相关的客户战略、业务和人才培养情况，最后形成可提交客户的分析和配课方案。业务问题、学员基础、师资或教学方式要求也可一并说明。'}
+function emptyResult(){resultBody.innerHTML='<div class="empty"><div><strong>等待生成培训方案</strong>通过对话明确需求后，系统将先调研，再形成项目背景、需求分析、设计逻辑和配课方案。</div></div>'}
 function saveProjects(){if(!currentProject)return;currentProject.history=history;currentProject.currentPlan=currentPlan;currentProject.updatedAt=new Date().toISOString();const i=projects.findIndex(p=>p.id===currentProject.id);if(i>=0)projects[i]=currentProject;else projects.unshift(currentProject);localStorage.setItem(PROJECTS_KEY,JSON.stringify(projects));localStorage.setItem(CURRENT_KEY,currentProject.id)}
 function loadProjects(){try{projects=JSON.parse(localStorage.getItem(PROJECTS_KEY)||'[]')}catch{projects=[]}const id=localStorage.getItem(CURRENT_KEY);currentProject=projects.find(p=>p.id===id)||projects[0]||null;if(!currentProject){createProject('未命名项目','',false)}else activateProject(currentProject.id,false)}
 function persistProjectSnapshot(project){if(!project)return;project.updatedAt=new Date().toISOString();const i=projects.findIndex(p=>p.id===project.id);if(i>=0)projects[i]=project;else projects.unshift(project);localStorage.setItem(PROJECTS_KEY,JSON.stringify(projects));if(isActiveProject(project,currentProject))localStorage.setItem(CURRENT_KEY,project.id)}
 function addProjectMessage(project,text,role){if(isActiveProject(project,currentProject))return addMessage(text,role,true);project.history=Array.isArray(project.history)?project.history:[];project.history.push({role:role==='user'?'user':'assistant',content:text});persistProjectSnapshot(project);return null}
-function storeProjectPlan(project,plan){project.currentPlan=plan;persistProjectSnapshot(project)}
+function storeProjectPlan(project,plan){project.currentPlan=plan;if(isActiveProject(project,currentProject))currentPlan=plan;persistProjectSnapshot(project)}
 function createProject(title,customerName,persist=true){const now=new Date().toISOString();currentProject={id:uid(),title:title||'未命名项目',customerName:customerName||'',createdAt:now,updatedAt:now,history:[],currentPlan:null,customerResearch:null,customerResearchRequest:''};history=[];currentPlan=null;projects.unshift(currentProject);if(persist)saveProjects();renderProject();renderMessages();emptyResult();return currentProject}
 function newProject(){saveProjects();const title=prompt('请输入项目/班级名称（例如：XX银行中层干部培训班）','新培训项目');if(title===null)return;const customer=prompt('客户名称（可选）。填写后系统可进行公开资料调研：','');if(customer===null)return;createProject(title.trim()||'新培训项目',customer.trim(),true);showToast('已进入全新项目，上一个项目上下文不会带入')}
 function activateProject(id,persist=true){const p=projects.find(x=>x.id===id);if(!p)return;if(currentProject)saveProjects();currentProject=p;history=Array.isArray(p.history)?p.history:[];currentPlan=p.currentPlan||null;sendBtn.disabled=false;if(persist)localStorage.setItem(CURRENT_KEY,p.id);renderProject();renderMessages();if(currentPlan)renderPlan(currentPlan,false);else emptyResult();closeProjects()}
@@ -89,17 +90,52 @@ function closeProjects(){document.getElementById('projectsModal').classList.remo
 function fill(text){input.value=text;input.focus()}
 function addMessage(text,role,save=false){const el=document.createElement('div');el.className=`msg ${role}`;el.textContent=text;messagesEl.appendChild(el);messagesEl.scrollTop=messagesEl.scrollHeight;if(save){history.push({role:role==='user'?'user':'assistant',content:text});saveProjects()}return el}
 
-async function researchCustomer(force=false,trainingRequest=null,targetProject=currentProject){const project=targetProject;const requestSummary=trainingRequest||((isActiveProject(project,currentProject)?currentPlan:project?.currentPlan)?.requirement_summary)||{};const requestFingerprint=researchRequestFingerprint(requestSummary);if(!project?.customerName)return null;if(project.customerResearch&&project.customerResearchRequest===requestFingerprint&&!force)return project.customerResearch;const loading=isActiveProject(project,currentProject)?addMessage(`正在调研客户“${project.customerName}”的公开资料…`,'ai',false):null;const fallback='客户公开资料暂未获取成功，课程方案已继续生成；不会补写未经核验的客户事实。可点击“重新调研客户”后再试。';try{const res=await fetch('./api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'research_customer',customer_name:project.customerName,training_request:requestSummary})});let data={};try{data=await res.json()}catch{}loading?.remove();if(!res.ok)throw new Error(fallback);if(data.research_available===false){addProjectMessage(project,data.user_message||data.message||'客户调研未启用，方案仍可继续生成。','ai');return null}if(data.status==='succeeded'||data.status==='no_reliable_sources'){project.customerResearch=data;project.customerResearchRequest=requestFingerprint;persistProjectSnapshot(project);addProjectMessage(project,data.user_message||`已完成客户公开资料调研，获取 ${data.sources?.length||0} 条可追溯来源。后续Word将仅基于这些公开资料生成培训背景。`,'ai');return data}addProjectMessage(project,data.user_message||fallback,'ai');return null}catch{loading?.remove();addProjectMessage(project,fallback,'ai');return null}}
-async function refreshResearch(){const project=currentProject;const requestSummary=currentPlan?.requirement_summary;if(!project?.customerName){showToast('当前项目没有填写客户名称');return}await researchCustomer(true,requestSummary,project);if(isActiveProject(project,currentProject)&&currentPlan)renderPlan(currentPlan,false)}
+async function postChat(body){const res=await fetch('./api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data;try{data=await res.json()}catch{throw new Error('服务返回异常，请重试')}if(!res.ok)throw new Error(data.error||'请求失败');return data}
+async function processProjectTraining(project,requestHistory,forceResearch=false){
+  const loading=isActiveProject(project,currentProject)?addMessage('正在整理培训需求…','ai',false):null;
+  try{
+    const data=await runTrainingWorkflow({
+      messages:requestHistory,customerName:project.customerName,
+      previousRequirement:project.requirement_summary||project.currentPlan?.requirement_summary,
+      cachedResearch:project.customerResearch,cachedFingerprint:project.customerResearchRequest,
+      forceResearch,post:postChat,
+      onStage:stage=>{if(loading)loading.textContent=({
+        requirements:'正在整理需求；关键内容缺失时会先提问…',
+        research:'正在围绕培养目标调研客户战略、业务与人才培养情况…',
+        design:'正在综合需求与调研，撰写三段分析并设计配课方案…'
+      })[stage]},
+      onResearch:(research,req,fingerprint)=>{
+        project.requirement_summary=req;
+        if(req.customer_name)project.customerName=req.customer_name;
+        project.customerResearch=research;project.customerResearchRequest=fingerprint;
+        persistProjectSnapshot(project);
+        if(isActiveProject(project,currentProject))renderProject();
+      }
+    });
+    if(data.mode==='clarify'){
+      project.requirement_summary=data.requirement_summary;
+      if(data.requirement_summary?.customer_name)project.customerName=data.requirement_summary.customer_name;
+      if(project.currentPlan)project.lastCompletedPlan=project.currentPlan;
+      storeProjectPlan(project,null);
+      if(isActiveProject(project,currentProject)){renderProject();emptyResult()}
+    }else if(data.mode==='plan'){
+      storeProjectPlan(project,data);
+      if(isActiveProject(project,currentProject))renderPlan(data,false);
+    }
+    addProjectMessage(project,data.assistant_message||'已处理。','ai');
+    return data;
+  }finally{loading?.remove()}
+}
+async function refreshResearch(){const project=currentProject;if(!project||sendBtn.disabled)return;sendBtn.disabled=true;const requestHistory=(project.history||[]).slice(-16);try{await processProjectTraining(project,requestHistory,true)}catch(err){addProjectMessage(project,'更新失败：'+err.message,'ai')}finally{if(isActiveProject(project,currentProject))sendBtn.disabled=false}}
 
 function renderPlan(plan,save=true){currentPlan=plan;if(save)saveProjects();if(plan.mode==='clarify')return;const s=plan.requirement_summary||{};const schedule=Array.isArray(plan.formal_schedule)?plan.formal_schedule:[];const external=Array.isArray(plan.external_candidates)?plan.external_candidates:[];const research=currentProject?.customerResearch;
 const summary=[['培训对象',s.audience],['行业',s.industry],['主题',s.theme],['天数',s.days],['课次',s.sessions],['培训目标',s.goals]].map(([k,v])=>`<div class="summary-card"><small>${esc(k)}</small><b>${esc(v||'—')}</b></div>`).join('');
-const researchHtml=formatResearchCard(research,esc);
+const researchHtml=formatResearchCard(plan.customer_research||research,esc);const proposalHtml=formatProposal(plan,esc);
 const rows=schedule.map((r,i)=>`<tr><td>${esc(r.day)}</td><td>${esc(r.period)}</td><td>${esc(r.module)}</td><td class="course">${esc(r.course_title||'待匹配')}</td><td><div class="teacher">${esc(r.teacher_name||'待匹配')}</div><div>${esc(r.institution||'')}</div>${r.source_type?`<div style="margin-top:5px"><span class="source">${esc(r.source_type)}</span></div>`:''}${r.teacher_profile?`<details class="evidence"><summary>师资简介</summary><div>${esc(r.teacher_profile)}</div></details>`:''}<div class="row-actions"><button class="mini" onclick="reviseRow(${i},'换老师')">换老师</button><button class="mini" onclick="reviseRow(${i},'换课程')">换课程</button><button class="mini" onclick="reviseRow(${i},'优化本行')">优化</button></div></td><td>${esc(r.reason||'')}${r.evidence?`<details class="evidence"><summary>查看依据</summary><div>${esc(r.evidence)}</div></details>`:''}</td></tr>`).join('');
 const externalHtml=external.length?`<div class="section"><div class="section-title"><span class="dot" style="background:#ffcf66;box-shadow:0 0 10px #ffcf66"></span>外部候选补充</div><div class="external">${external.map(x=>`<div class="ext-card"><b>${esc(x.teacher_name)}</b> · ${esc(x.institution)}<div style="margin-top:7px;color:#cbd8e7">${esc(x.suggested_topic)}</div><div style="margin-top:7px;color:#9fb1c7;font-size:13px">${esc(x.reason)}</div><div class="notice">${esc(x.notice||'未入正式库，需核验')}</div></div>`).join('')}</div></div>`:'';
-resultBody.innerHTML=`<div class="section"><div class="section-title"><span class="dot"></span>需求摘要</div><div class="summary-grid">${summary}</div></div>${researchHtml}<div class="section"><div class="section-title"><span class="dot"></span>正式推荐课表</div><div class="table-wrap"><table><thead><tr><th>天数</th><th>时段</th><th>课程模块</th><th>课程名称</th><th>推荐师资</th><th>推荐理由 / 依据</th></tr></thead><tbody>${rows||'<tr><td colspan="6">当前正式库没有足够匹配结果。</td></tr>'}</tbody></table></div></div>${externalHtml}`}
+resultBody.innerHTML=`${plan.research_notice?`<div class="section" style="color:#ffcf66;font-size:13px">${esc(plan.research_notice)}</div>`:''}${proposalHtml}<div class="section"><div class="section-title"><span class="dot"></span>培训安排概览</div><div class="summary-grid">${summary}</div></div><div class="section"><div class="section-title"><span class="dot"></span>配课方案</div><div class="table-wrap"><table><thead><tr><th>天数</th><th>时段</th><th>课程模块</th><th>课程名称</th><th>推荐师资</th><th>课程设计理由 / 依据</th></tr></thead><tbody>${rows||'<tr><td colspan="6">当前正式库没有足够匹配结果。</td></tr>'}</tbody></table></div></div>${externalHtml}${researchHtml}`}
 
-async function sendMessage(){const project=currentProject;const content=input.value.trim();if(!project||!content||sendBtn.disabled)return;addMessage(content,'user',true);const requestHistory=history.slice(-16);input.value='';sendBtn.disabled=true;const loading=addMessage('正在分析当前项目需求并检索正式师资课程库…','ai',false);try{const res=await fetch('./api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:requestHistory})});const data=await res.json();loading.remove();if(!res.ok)throw new Error(data.error||'请求失败');addProjectMessage(project,data.assistant_message||'已处理。','ai');if(data.mode!=='clarify'){storeProjectPlan(project,data);if(isActiveProject(project,currentProject))renderPlan(data,false);if(project.customerName){await researchCustomer(false,data.requirement_summary,project);if(isActiveProject(project,currentProject))renderPlan(data,false)}}}catch(err){loading.remove();addProjectMessage(project,'调用失败：'+err.message,'ai')}finally{if(isActiveProject(project,currentProject)){sendBtn.disabled=false;input.focus()}}}
+async function sendMessage(){const project=currentProject;const content=input.value.trim();if(!project||!content||sendBtn.disabled)return;addMessage(content,'user',true);const requestHistory=history.slice(-16);input.value='';sendBtn.disabled=true;try{await processProjectTraining(project,requestHistory)}catch(err){addProjectMessage(project,'调用失败：'+err.message,'ai')}finally{if(isActiveProject(project,currentProject)){sendBtn.disabled=false;input.focus()}}}
 function reviseRow(index,action){if(!currentPlan?.formal_schedule?.[index])return;const r=currentPlan.formal_schedule[index];input.value=`请只修改${r.day||''}${r.period||''}这一行：${action}。其他时段保持不变。当前课程“${r.course_title||''}”，当前老师“${r.teacher_name||''}”。`;input.focus();showToast('修改指令已放入输入框')}
 
 function uniqueProfiles(){const map=new Map();(currentPlan?.formal_schedule||[]).forEach(r=>{if(r.teacher_name&&r.teacher_name!=='待匹配'&&!map.has(r.teacher_name))map.set(r.teacher_name,{name:r.teacher_name,institution:r.institution||'',profile:r.teacher_profile||''})});return [...map.values()]}

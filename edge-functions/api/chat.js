@@ -1,5 +1,6 @@
 import { researchCustomer as runCustomerResearch } from "../lib/research/service.js";
 import { createBochaSearch } from "../lib/research/providers/bocha.js";
+import { proposalFallback, normalizeProposal, proposalPrompt } from "../lib/proposal.js";
 
 const SYSTEM_PROMPT = `你是“AI教研助手”，服务于培训、干部教育、终身教育、企业培训等教研场景。
 
@@ -210,7 +211,10 @@ export function buildResearchPrompt(customerName, request = {}) {
     theme: normalizedString(request?.theme),
     days: normalizedString(request?.days),
     sessions: normalizedString(request?.sessions),
-    goals: normalizedString(request?.goals)
+    goals: normalizedString(request?.goals),
+    business_challenges: normalizedString(request?.business_challenges),
+    learner_context: normalizedString(request?.learner_context),
+    preferences: normalizedString(request?.preferences)
   };
 
   return `请调研客户“${normalizedString(customerName)}”，围绕本次培训需求检索公开资料。
@@ -223,7 +227,7 @@ ${JSON.stringify(trainingRequest, null, 2)}
 2. 业务：机构性质、主营业务/核心职责，以及与主题相关的业务变化；
 3. 人才培养：公开的人才队伍、干部培养和培训体系信息；
 4. 能力建设：数字化、人工智能、金融科技、岗位能力等公开线索；
-5. 培训设计：结合培训对象、主题、天数、场次和目标提出有依据的课程设计启示。
+5. 培训设计：结合已明确的培训对象、主题、培养目标和业务问题，筛选最影响本次培训的2—3条背景线索，提出对应的能力方向、课程模块和教学方式建议。只检索有助于本次培训方案设计的信息，避免泛泛介绍客户全部业务。
 
 事实规则：
 1. 只能使用本次联网搜索实际找到的公开信息，不得使用模型记忆补充客户事实。
@@ -361,6 +365,7 @@ async function researchCustomer(deepseekKey, customerName, bochaKey, request = {
   let primaryIntelligence = null;
   const research = await runCustomerResearch({
     customerName,
+    trainingRequest: request,
     primarySearch: async () => {
       primaryIntelligence = await callDeepSeekWebResearch(deepseekKey, customerName, request);
       return {
@@ -402,7 +407,10 @@ function researchRequestFromBody(body) {
     theme: request?.theme,
     days: request?.days,
     sessions: request?.sessions,
-    goals: request?.goals
+    goals: request?.goals,
+    business_challenges: request?.business_challenges,
+    learner_context: request?.learner_context,
+    preferences: request?.preferences
   };
 }
 
@@ -454,45 +462,55 @@ function inferIndustry(text) {
 }
 
 function heuristicTheme(text) {
-  const cleaned = text
-    .replace(/请.*$/g, "")
-    .replace(/^(?:我要|我想|需要|帮我|请为)/, "")
-    .replace(/(?:培训对象|对象)[：:][^，。；;]+[，。；;]?/g, "")
-    .replace(/\d+\s*天/g, "")
-    .replace(/[一二两三四五六七八九十]\s*天/g, "")
-    .replace(/每天上午下午各(?:1|一)讲/g, "")
-    .replace(/上午和下午.*$/g, "")
-    .trim()
-    .replace(/^[，、；：:\s]+|[，、；：:\s]+$/g,"");
-  return cleaned.length >= 4 ? cleaned : "";
+  const explicit = text.match(/(?:培训主题|主题|培训内容)[：:为是\s]+([^，。；;\n]+)/);
+  if (explicit) return explicit[1].trim();
+  return ['人工智能', '数字化转型', '数字化经营', '跨境金融', '风险管理', '业财融合', '领导力', '战略管理'].filter(topic => text.includes(topic)).join('与');
 }
 
 function heuristicRequirement(text) {
   const days = parseDaysFromText(text);
   const sessions = parseExplicitSessions(text);
   return {
-    audience: inferAudience(text),
+    audience: text.match(/(?:培训对象|对象)[：:为是\s]+([^，。；;\n]+)/)?.[1]?.trim() || inferAudience(text),
     industry: inferIndustry(text),
     theme: heuristicTheme(text),
     days: days ? `${days}天` : "",
     sessions: sessions ? `${sessions}讲` : "",
-    goals: "",
+    goals: text.match(/(?:培训目标|培养目标|希望解决的问题|目标)[：:为是\s]+([^。；;\n]+)/)?.[1]?.trim() || (/目标.*(?:请建议|你来建议)|(?:请建议|你来建议).*目标/.test(text) ? '培养目标由方案提出建议，待客户确认' : ''),
     assumptions: []
   };
 }
 
-async function parseRequirement(apiKey, conversationText) {
-  const fallback = heuristicRequirement(conversationText);
+const REQUIREMENT_FIELDS = ['customer_name', 'audience', 'industry', 'theme', 'days', 'sessions', 'goals', 'business_challenges', 'learner_context', 'preferences'];
+
+function cleanRequirement(value = {}) {
+  return {
+    ...Object.fromEntries(REQUIREMENT_FIELDS.map(field => [field, normalizedString(value[field])])),
+    skip_research: value.skip_research === true,
+    assumptions: normalizedArray(value.assumptions)
+  };
+}
+
+async function parseRequirement(apiKey, conversationText, previous = {}, userText = conversationText) {
+  const inferred = heuristicRequirement(userText);
+  const fallback = cleanRequirement({ ...previous, ...Object.fromEntries(Object.entries(inferred).filter(([, value]) => typeof value === 'string' && value)), assumptions: previous.assumptions });
+  if (/客户(?:名称)?[：:为是\s]+/.test(userText)) fallback.customer_name = userText.match(/客户(?:名称)?[：:为是\s]+([^，。；;\n]+)/)?.[1]?.trim() || fallback.customer_name;
+  if (/暂不提供客户|无需调研|不需要调研|不做客户调研/.test(userText)) fallback.skip_research = true;
 
   const prompt = `请从完整对话中提取培训需求，只输出 JSON：
 
 {
+  "customer_name": "",
+  "skip_research": false,
   "audience": "",
   "industry": "",
   "theme": "",
   "days": "",
   "sessions": "",
   "goals": "",
+  "business_challenges": "",
+  "learner_context": "",
+  "preferences": "",
   "assumptions": []
 }
 
@@ -503,6 +521,11 @@ async function parseRequirement(apiKey, conversationText) {
 - 若用户明确说每天上午下午各1讲，则 sessions = days × 2。
 - 信息缺失就留空字符串，不要为了完整而补造。
 - theme 应提炼培训主题。
+- goals 必须来自用户明确的培养目标或希望解决的问题；用户明确让方案建议目标时可写“培养目标由方案提出建议，待客户确认”。
+- business_challenges 为用户说明的业务问题，learner_context 为学员岗位/经验/基础，preferences 为师资、教学方式、场次、排课或其他限制，未说明则留空。
+- 结合助手追问理解用户的简短补充，以用户最近一次明确修改为准；助手提出但用户未接受的建议不能当成已确认需求。
+- 客户名称可从已有需求或用户新输入获取。仅当用户明确表示不提供客户或无需调研时 skip_research=true，其他情况为false。
+- 已明确的信息保留，不重复追问。已确认的前次需求：${JSON.stringify(previous)}
 
 完整用户对话：
 ${conversationText}`;
@@ -515,15 +538,11 @@ ${conversationText}`;
     const parsed = extractJson(raw);
 
     if (parsed && typeof parsed === "object") {
-      return {
-        audience: parsed.audience || fallback.audience || "",
-        industry: parsed.industry || fallback.industry || "",
-        theme: parsed.theme || fallback.theme || "",
-        days: parsed.days || fallback.days || "",
-        sessions: parsed.sessions || fallback.sessions || "",
-        goals: parsed.goals || "",
+      return cleanRequirement({
+        ...Object.fromEntries(REQUIREMENT_FIELDS.map(field => [field, normalizedString(parsed[field]) || fallback[field] || ''])),
+        skip_research: typeof parsed.skip_research === 'boolean' ? parsed.skip_research : fallback.skip_research,
         assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : []
-      };
+      });
     }
   } catch {}
 
@@ -532,20 +551,24 @@ ${conversationText}`;
 
 function missingCriticalFields(req) {
   const missing = [];
+  if (!req.customer_name && !req.skip_research) missing.push("客户名称");
   if (!req.audience) missing.push("培训对象");
   if (!req.theme) missing.push("培训主题");
   if (!req.days) missing.push("培训天数");
+  if (!req.goals) missing.push("培养目标或希望解决的问题");
   return missing;
 }
 
 function clarificationMessage(missing, req) {
-  const labels = missing.join("、");
-  let example = "例如：对象为国企中层，2天，主题为人工智能与数字化转型。";
-  if (missing.length === 1 && missing[0] === "培训天数") example = "例如：2天。";
-  if (missing.length === 1 && missing[0] === "培训对象") example = "例如：金融机构中层干部。";
-  if (missing.length === 1 && missing[0] === "培训主题") example = "例如：上海国际金融中心建设与跨境金融。";
-
-  return `为了生成正式课表，还需要确认：${labels}。请一次性补充即可。${example}`;
+  const confirmed = [req.customer_name && `客户为${req.customer_name}`, req.audience && `对象为${req.audience}`, req.theme && `主题为${req.theme}`, req.days && `安排${req.days}`, req.goals && `目标为${req.goals}`].filter(Boolean).join('，');
+  const hints = {
+    '客户名称': '请提供客户完整名称（如不方便提供，可回复“暂不提供客户”）。',
+    '培训对象': '参训人员是什么岗位/层级？',
+    '培训主题': '希望围绕什么主题或业务方向开展培训？',
+    '培训天数': '计划培训几天？是否有固定场次？',
+    '培养目标或希望解决的问题': '本次培训最希望解决什么问题，或让学员具备什么能力？例如提升数字化经营能力、改善团队执行、推动某项业务转型；暂不明确时可回复“请建议培养目标”。'
+  };
+  return `${confirmed ? `目前已明确：${confirmed}。\n` : ''}在调研和设计配课前，还需要补充：\n${missing.map((field, i) => `${i + 1}. ${hints[field]}`).join('\n')}\n如有具体业务问题、学员基础、师资偏好或教学方式要求，也可一并说明。`;
 }
 
 function normalizeSessions(req) {
@@ -745,7 +768,7 @@ function deterministicFallback(req, rankedFormal, rankedExternal) {
         institution: "",
         source_type: "",
         teacher_profile: "",
-        reason: "当前正式师资课程库暂未找到满足条件的确认关系。",
+        reason: "该时段暂无满足要求的已确认课程师资组合，需进一步沟通。",
         evidence: ""
       };
     }
@@ -760,9 +783,9 @@ function deterministicFallback(req, rankedFormal, rankedExternal) {
       institution: [candidate.institution,candidate.department].filter(Boolean).join(" "),
       source_type: candidate.source_type,
       teacher_profile: candidate.teacher_profile || "",
-      reason: candidate.match_reasons.length
-        ? candidate.match_reasons.slice(0,2).join("；")
-        : "课程方向及适用对象与培训需求匹配。",
+      reason: candidate.match_score > 0
+        ? `本课程围绕“${candidate.course_topics || candidate.course_title}”展开，作为“${req.goals}”培养目标的相关专题。建议结合${req.audience}的岗位问题开展案例讨论，并与前后课程衔接。`
+        : '本课程暂作备选安排，与本次主题及学员需求的适配程度需进一步确认。',
       evidence: `已确认正式师资课程关系；课程编号 ${candidate.course_business_code}；教师编号 ${candidate.teacher_business_code}`
     };
   });
@@ -791,10 +814,11 @@ function deterministicFallback(req, rankedFormal, rankedExternal) {
   };
 }
 
-async function generatePlan(apiKey, req, rankedFormal, rankedExternal) {
+async function generatePlan(apiKey, req, rankedFormal, rankedExternal, research) {
   const slots = makeSlots(req);
 
-  const prompt = `请根据下面信息生成结构化培训方案，只输出 JSON。
+  const prompt = `${proposalPrompt(req, research)}
+请根据下面信息生成结构化培训方案，只输出 JSON。
 
 需求：
 ${JSON.stringify(req,null,2)}
@@ -813,6 +837,11 @@ ${JSON.stringify(rankedExternal.filter(x=>x.match_score>0).slice(0,6),null,2)}
   "mode":"plan",
   "assistant_message":"",
   "requirement_summary":${JSON.stringify(req)},
+  "proposal": {
+    "project_background": { "text": "", "source_ids": [] },
+    "client_needs_analysis": { "text": "", "source_ids": [] },
+    "design_logic": { "text": "", "source_ids": [] }
+  },
   "formal_schedule":[
     {
       "day":"",
@@ -845,14 +874,14 @@ ${JSON.stringify(rankedExternal.filter(x=>x.match_score>0).slice(0,6),null,2)}
 - formal_schedule 数量尽量与时段数一致。
 - 正式课表只能从正式候选选择。
 - teacher_profile 只能复制正式候选中的 teacher_profile，不得补写任何候选中没有的学历、职务、兼职、成果或荣誉。
-- 推荐理由控制在1-2句，详细事实放 evidence。
+- 推荐理由控制在2-3句，写出该课程如何回应需求、发展能力以及所处教学阶段；客户事实引用来源编号。
 - 如果正式候选不足，对应时段使用“待匹配”。
 - requirement_summary 必须直接使用上面的需求值，不要置空。`;
 
   const raw = await callDeepSeek(apiKey,[
     {role:"system",content:SYSTEM_PROMPT},
     {role:"user",content:prompt}
-  ],2600);
+  ],4200);
 
   return extractJson(raw);
 }
@@ -863,7 +892,8 @@ function normalizePlan(modelPlan, fallbackPlan, req) {
   return {
     mode: "plan",
     assistant_message: modelPlan.assistant_message || fallbackPlan.assistant_message,
-    requirement_summary: {...req,...(modelPlan.requirement_summary || {})},
+    requirement_summary: req,
+    proposal: modelPlan.proposal,
     formal_schedule:
       Array.isArray(modelPlan.formal_schedule) && modelPlan.formal_schedule.length
         ? modelPlan.formal_schedule
@@ -884,15 +914,14 @@ export function enrichScheduleProfiles(plan, rankedFormal) {
   const rows = Array.isArray(plan?.formal_schedule) ? plan.formal_schedule : [];
   plan.formal_schedule = rows.map(row => {
     const match = rankedFormal.find(x =>
-      (row.course_title && x.course_title === row.course_title) ||
-      (row.teacher_name && x.teacher_name === row.teacher_name)
+      row.course_title && x.course_title === row.course_title && row.teacher_name && x.teacher_name === row.teacher_name
     );
-    if (!match) return { ...row, teacher_profile: "" };
+    if (!match) return { ...row, course_title: '待匹配', teacher_name: '待匹配', institution: '', source_type: '', teacher_profile: '', reason: '该时段暂无已确认的合适课程师资组合。', evidence: '' };
     return {
       ...row,
       teacher_profile: match.teacher_profile || "",
-      institution: row.institution || [match.institution, match.department].filter(Boolean).join(" "),
-      source_type: row.source_type || match.source_type
+      institution: [match.institution, match.department].filter(Boolean).join(" "),
+      source_type: match.source_type
     };
   });
   return plan;
@@ -911,6 +940,8 @@ export async function onRequestPost(context) {
       const customerName = String(body.customer_name || "").trim();
       if (!customerName) return json({ error: "customer_name 不能为空" }, 400);
       const researchRequest = researchRequestFromBody(body);
+      const missing = missingCriticalFields(cleanRequirement({ ...researchRequest, customer_name: customerName }));
+      if (deepseekKey && missing.length) return json({ mode: 'clarify', assistant_message: clarificationMessage(missing, researchRequest), questions: missing });
       try {
         const research = await researchCustomer(
           deepseekKey,
@@ -926,14 +957,14 @@ export async function onRequestPost(context) {
           researched_at: new Date().toISOString(),
           status: "retryable_failure",
           provider: "",
-          user_message: "客户公开资料暂未获取成功，课程方案已继续生成，可点击“重新调研客户”后再试。",
-          message: "客户公开资料暂未获取成功，课程方案已继续生成，可点击“重新调研客户”后再试。",
+          user_message: "公开资料暂未获取成功，本次方案将先依据已确认需求设计，可稍后重新调研并更新方案。",
+          message: "公开资料暂未获取成功，本次方案将先依据已确认需求设计，可稍后重新调研并更新方案。",
           ...normalizeTrainingIntelligence()
         });
       }
     }
 
-    if (!deepseekKey || !cloudbaseEnvId || !cloudbaseApiKey) {
+    if (!deepseekKey) {
       return json({ error: "服务暂未就绪，请稍后重试。" }, 503);
     }
 
@@ -943,10 +974,12 @@ export async function onRequestPost(context) {
       .slice(-16);
 
     const userMessages = messages.filter(m=>m.role==="user").map(m=>m.content);
-    if (!userMessages.length) return json({error:"缺少用户需求"},400);
+    if (!userMessages.length && body.action !== 'compose_training_plan') return json({error:"缺少用户需求"},400);
 
-    const conversationText = userMessages.join("\n补充信息：");
-    let req = await parseRequirement(deepseekKey, conversationText);
+    const conversationText = messages.map(message => `${message.role === 'user' ? '用户' : '助手追问/说明'}：${message.content}`).join('\n');
+    let req = body.action === 'compose_training_plan'
+      ? cleanRequirement(body.training_request)
+      : await parseRequirement(deepseekKey, conversationText, cleanRequirement({ ...body.requirement_summary, customer_name: body.customer_name || body.requirement_summary?.customer_name }), userMessages.join('\n'));
 
     const missing = missingCriticalFields(req);
     if (missing.length) {
@@ -964,6 +997,17 @@ export async function onRequestPost(context) {
 
     req = normalizeSessions(req);
 
+    if (body.action !== 'compose_training_plan') {
+      return json({ mode: 'requirements_ready', requirement_summary: req, assistant_message: '需求已整理，接下来调研客户相关背景，再设计课程方案。' });
+    }
+    if (!body.research_attempted) return json({ error: '请先完成客户调研，再设计配课方案。' }, 409);
+    if (!cloudbaseEnvId || !cloudbaseApiKey) return json({ error: '师资课程服务暂未就绪，请稍后重试。' }, 503);
+    const researchStatus = body.customer_research?.status || 'failed';
+    const usableResearch = ['succeeded', 'no_reliable_sources'].includes(researchStatus)
+      && (!body.customer_research?.customer_name || body.customer_research.customer_name === req.customer_name)
+      && !req.skip_research;
+    const research = { status: usableResearch ? researchStatus : req.skip_research ? 'skipped' : 'failed', ...normalizeTrainingIntelligence(usableResearch ? body.customer_research : {}) };
+
     const [teachers,courses,relations] = await Promise.all([
       loadTeachers(cloudbaseEnvId, cloudbaseApiKey),
       cloudbaseGet(
@@ -977,17 +1021,35 @@ export async function onRequestPost(context) {
     ]);
 
     const faculty = buildFacultyContext(teachers,courses,relations);
-    const rankedFormal = rankCandidates(faculty.formal,req,conversationText);
-    const rankedExternal = rankCandidates(faculty.external,req,conversationText);
+    const designContext = [userMessages.join('\n'), req.goals, req.business_challenges, req.learner_context, ...research.training_implications.map(item => item.point)].filter(Boolean).join('；');
+    const rankedFormal = rankCandidates(faculty.formal,req,designContext);
+    const rankedExternal = rankCandidates(faculty.external,req,designContext);
 
     const fallbackPlan = deterministicFallback(req,rankedFormal,rankedExternal);
 
     let modelPlan = null;
     try {
-      modelPlan = await generatePlan(deepseekKey,req,rankedFormal,rankedExternal);
+      modelPlan = await generatePlan(deepseekKey,req,rankedFormal,rankedExternal,research);
     } catch {}
 
-    const plan = enrichScheduleProfiles(normalizePlan(modelPlan,fallbackPlan,req), rankedFormal);
+    const plan = normalizePlan(modelPlan,fallbackPlan,req);
+    const slots = makeSlots(req);
+    const scheduleInvalid = plan.formal_schedule.length !== slots.length || plan.formal_schedule.some((row, i) =>
+      !row || row.day !== slots[i].day || row.period !== slots[i].period ||
+      (row.course_title !== '待匹配' && !rankedFormal.some(candidate => candidate.course_title === row.course_title && candidate.teacher_name === row.teacher_name))
+    );
+    if (scheduleInvalid) {
+      plan.formal_schedule = fallbackPlan.formal_schedule;
+      plan.proposal = null;
+    }
+    enrichScheduleProfiles(plan, rankedFormal);
+    const fallbackProposal = proposalFallback(req, plan.formal_schedule);
+    plan.proposal = normalizeProposal(plan.proposal, fallbackProposal, research.sources);
+    plan.customer_research = research;
+    plan.research_notice = research.status === 'succeeded' ? '' : research.status === 'skipped'
+      ? '本项目按已确认需求设计，未开展客户公开资料调研。'
+      : '本次未获得可用于方案分析的可靠公开资料，正文依据已确认需求设计，可重新调研后更新方案。';
+    plan.assistant_message = `已完成需求整理${req.skip_research ? '' : '和客户资料检索'}，并形成项目背景、客户需求分析、方案设计逻辑及配课方案。${plan.research_notice}`;
 
     return json({
       ...plan,
@@ -998,12 +1060,12 @@ export async function onRequestPost(context) {
           teacher:x.teacher_name,course:x.course_title,score:x.match_score
         })),
         data_source:"CloudBase PostgreSQL",
-        pipeline:"clarify -> parse -> deterministic match -> LLM compose -> fallback"
+        pipeline:"clarify -> research -> client-facing analysis -> course composition"
       }
     });
 
-  } catch (error) {
-    return json({error:error?.message || "服务器内部错误"},500);
+  } catch {
+    return json({error:"服务暂未完成本次处理，请稍后重试。"},500);
   }
 }
 
@@ -1014,7 +1076,7 @@ export async function onRequestGet(context) {
   const result={
     ok:true,
     service:"AI Workbench Chat API",
-    version:"1.1.3",
+    version:"1.3.0",
     clarification_before_plan:true,
     customer_research_configured:Boolean(context.env.DEEPSEEK_API_KEY),
     customer_research_provider:"deepseek_web_search",
@@ -1032,9 +1094,9 @@ export async function onRequestGet(context) {
       );
       result.database_ok=true;
       result.test_teacher_count=Array.isArray(teachers)?teachers.length:0;
-    } catch(e) {
+    } catch {
       result.database_ok=false;
-      result.database_error=e.message;
+      result.database_error='师资课程服务暂不可用';
     }
   }
 

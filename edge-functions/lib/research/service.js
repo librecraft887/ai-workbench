@@ -23,13 +23,15 @@ function normalizeSources(sources, provider) {
     }));
 }
 
-function backupQueries(customerName) {
+function backupQueries(customerName, trainingRequest = {}) {
   const customer = String(customerName || '').trim();
+  const theme = String(trainingRequest.theme || '').trim().slice(0, 80);
+  const audience = String(trainingRequest.audience || '').trim().slice(0, 60);
   return [
-    `${customer} 战略 中长期战略 年度重点 近期重点工作`,
-    `${customer} 人才培养 干部培养 培训体系 人才队伍`,
-    `${customer} 数字化 人工智能 金融科技 业务变革`,
-    `${customer} 能力建设 岗位能力 核心能力 组织能力`
+    `${customer} ${theme} 战略 年度重点 业务发展`,
+    `${customer} ${audience} 人才培养 干部培养 培训体系`,
+    `${customer} ${theme} 业务变革 重点工作`,
+    `${customer} ${theme} 能力建设 岗位能力 培训举措`
   ];
 }
 
@@ -47,7 +49,7 @@ function succeeded(result, provider) {
   };
 }
 
-export async function researchCustomer({ customerName, primarySearch, backupSearch, wait = async () => {} }) {
+export async function researchCustomer({ customerName, trainingRequest, primarySearch, backupSearch, wait = async () => {} }) {
   if (!String(customerName || '').trim()) {
     return { status: 'failed', sources: [], background: '', training_relevance: '', user_message: '未填写客户名称。' };
   }
@@ -66,7 +68,7 @@ export async function researchCustomer({ customerName, primarySearch, backupSear
   if (typeof backupSearch === 'function') {
     const sources = [];
     let completedBackupSearch = false;
-    for (const query of backupQueries(customerName)) {
+    for (const query of backupQueries(customerName, trainingRequest)) {
       try {
         const result = await backupSearch(query);
         completedBackupSearch = true;
@@ -86,6 +88,6 @@ export async function researchCustomer({ customerName, primarySearch, backupSear
     background: '',
     training_relevance: '',
     sources: [],
-    user_message: '客户公开资料暂未获取成功，课程方案已继续生成，可点击重新调研客户。'
+    user_message: '公开资料暂未获取成功，本次方案将先依据已确认需求设计，可重新调研后更新方案。'
   };
 }
