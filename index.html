@@ -47,6 +47,7 @@ radial-gradient(ellipse at 62% 80%,rgba(95,184,255,.28),transparent 21%),linear-
 .toast{position:fixed;right:30px;bottom:30px;background:#10243d;border:1px solid rgba(108,193,255,.35);padding:14px 18px;border-radius:12px;color:#d9efff;display:none;z-index:20}
 @media(max-width:1100px){.app{grid-template-columns:88px 1fr}.brand h3,.brand small,.nav-item span:not(.ico),.sidebar-footer{display:none}.brand{padding-left:6px}.nav-item{justify-content:center;padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.card{min-height:330px}.hero .quote{display:none}}
 @media(max-width:720px){.app{display:block}.sidebar{display:none}.main{padding:18px}.topbar{justify-content:flex-start}.search{width:100%}.top-actions{display:none}.title h1{font-size:46px}.title p{font-size:17px}.hero{margin:20px 0 28px}.cards{grid-template-columns:1fr}.card{min-height:290px}.visual{height:130px}.orb{right:-220px}.horizon{left:0}.footer-quote{margin:45px 0 70px}}
+@media(min-width:1101px){.cards{grid-template-columns:1.18fr 1fr 1fr}}
 </style>
 </head>
 <body>
@@ -75,10 +76,6 @@ radial-gradient(ellipse at 62% 80%,rgba(95,184,255,.28),transparent 21%),linear-
           <h3>AI教研助手</h3><p>课程设计｜专题研究｜教研支持</p>
           <button class="enter" onclick="event.stopPropagation();location.href='./assistant.html'">进入 →</button>
         </div>
-      </article>
-      <article class="card placeholder">
-        <div class="more">•••</div><div class="plus">＋</div>
-        <h3>资源维护助手（预留）</h3><p>预留扩展位</p>
       </article>
       <article class="card placeholder" onclick="showToast('这是预留扩展位')"><div class="more">•••</div><div class="plus">＋</div><h3>待接入智能体</h3><p>预留扩展位</p></article>
       <article class="card placeholder" onclick="showToast('这是预留扩展位')"><div class="more">•••</div><div class="plus">＋</div><h3>待接入智能体</h3><p>预留扩展位</p></article>
