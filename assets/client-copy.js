@@ -58,13 +58,11 @@
   function buildTrainingOverview(plan) {
     const r = plan?.requirement_summary || {};
     const o = plan?.training_overview || {};
-    const schedule = plan?.formal_schedule || [];
     const methods = [...new Set((r.preferences || '').match(/专题讲授|案例研讨|案例讨论|研讨|互动|实操|工作坊|讲授|岗位问题讨论|行动学习/g) || [])].join('、');
     return [
       ['培训对象', r.audience || o.audience || '项目参训人员'],
       ['培训主题', r.theme || o.theme || '岗位能力提升'],
       ['培训周期', r.days || o.days || '按项目安排实施'],
-      ['课程场次', r.sessions || o.sessions || `${schedule.length || 1}讲`],
       ['培养目标', o.goals || r.goals || '提升专题理解、方法运用与岗位实践能力'],
       ['教学方式', o.learning_methods || methods || '专题讲授、案例研讨与岗位问题讨论'],
       ['预期学习成果', o.expected_outputs || '形成岗位问题分析思路与后续行动建议']

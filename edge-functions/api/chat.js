@@ -1,6 +1,7 @@
 import { researchCustomer as runCustomerResearch } from "../lib/research/service.js";
 import { createBochaSearch } from "../lib/research/providers/bocha.js";
 import { proposalFallback, normalizeProposal, proposalPrompt, normalizeTrainingOverview } from "../lib/proposal.js";
+import { researchTimeWindow } from "../lib/research/time-window.js";
 
 const SYSTEM_PROMPT = `你是“AI教研助手”，服务于培训、干部教育、终身教育、企业培训等教研场景。
 
@@ -204,7 +205,8 @@ function normalizeTrainingIntelligence(result, citationUrls) {
   };
 }
 
-export function buildResearchPrompt(customerName, request = {}) {
+export function buildResearchPrompt(customerName, request = {}, options = {}) {
+  const window = researchTimeWindow(options.now);
   const trainingRequest = {
     audience: normalizedString(request?.audience),
     industry: normalizedString(request?.industry),
@@ -221,6 +223,9 @@ export function buildResearchPrompt(customerName, request = {}) {
 
 本次培训需求：
 ${JSON.stringify(trainingRequest, null, 2)}
+
+资料时效：本次调研日期为${window.end}，优先研究最近一年（${window.start}至${window.end}）的战略重点、业务进展、人才培养和培训举措。年度指标优先使用最新已披露完整年度或最新报告期数据，核对数据所属时期，不能用网页发布日期代替指标年份。
+较早资料仅用于仍有效的机构背景或中长期战略补充，不作为近期业务变化的主要依据。没有近一年可靠数据时保留信息缺口，不用旧数据冒充现状；没有标注发布日期时不要猜日期。
 
 重点覆盖以下范围：
 1. 战略：中长期战略、年度重点与近期重点工作；
@@ -395,7 +400,8 @@ async function researchCustomer(deepseekKey, customerName, bochaKey, request = {
     provider: research.provider || "",
     user_message: research.user_message,
     message: research.user_message,
-    ...intelligence
+    ...intelligence,
+    time_window: researchTimeWindow()
   };
 }
 
@@ -1090,7 +1096,7 @@ export async function onRequestGet(context) {
   const result={
     ok:true,
     service:"AI Workbench Chat API",
-    version:"1.3.1",
+    version:"1.3.2",
     clarification_before_plan:true,
     customer_research_configured:Boolean(context.env.DEEPSEEK_API_KEY),
     customer_research_provider:"deepseek_web_search",

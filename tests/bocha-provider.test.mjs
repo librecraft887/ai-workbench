@@ -25,7 +25,7 @@ test('maps Bocha web-search results into traceable research sources', async () =
   assert.equal(request.url, 'https://api.bochaai.com/v1/web-search');
   assert.equal(request.options.headers.Authorization, 'Bearer test-key');
   assert.deepEqual(JSON.parse(request.options.body), {
-    query: '示例客户 近期重点工作', freshness: 'noLimit', summary: true, count: 8
+    query: '示例客户 近期重点工作', freshness: 'oneYear', summary: true, count: 8
   });
   assert.deepEqual(result, [{
     title: '客户官网',

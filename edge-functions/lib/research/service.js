@@ -1,3 +1,5 @@
+import { researchTimeWindow } from './time-window.js';
+
 function isRetryable(error) {
   const code = String(error?.code || '').toUpperCase();
   const status = Number(error?.status || error?.statusCode || 0);
@@ -27,11 +29,13 @@ function backupQueries(customerName, trainingRequest = {}) {
   const customer = String(customerName || '').trim();
   const theme = String(trainingRequest.theme || '').trim().slice(0, 80);
   const audience = String(trainingRequest.audience || '').trim().slice(0, 60);
+  const window = researchTimeWindow();
+  const recent = `${window.start.slice(0,4)} ${window.end.slice(0,4)} 近一年`;
   return [
-    `${customer} ${theme} 战略 年度重点 业务发展`,
-    `${customer} ${audience} 人才培养 干部培养 培训体系`,
-    `${customer} ${theme} 业务变革 重点工作`,
-    `${customer} ${theme} 能力建设 岗位能力 培训举措`
+    `${customer} ${theme} ${recent} 战略 年度重点 业务发展`,
+    `${customer} ${audience} ${recent} 人才培养 干部培养 培训体系`,
+    `${customer} ${theme} ${recent} 业务变革 重点工作`,
+    `${customer} ${theme} ${recent} 能力建设 岗位能力 培训举措`
   ];
 }
 

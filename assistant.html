@@ -28,7 +28,7 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;ba
 <body>
 <div class="shell">
   <div class="top"><a class="back" href="./index.html">← 返回工作台</a><div class="logo">My AI · 教研</div></div>
-  <div class="hero"><div><h1>AI教研助手</h1><p>项目隔离｜客户调研｜正式师资匹配｜成果导出</p></div><div class="badge">● CloudBase 正式库驱动</div></div>
+  <div class="hero"><div><h1>AI教研助手</h1></div><div class="badge">● CloudBase 正式库驱动</div></div>
 
   <div class="projectbar">
     <div class="projectmeta"><div><div class="projectname" id="projectName">当前项目</div><div class="customer" id="customerName">客户名称：未填写</div></div></div>
@@ -43,11 +43,6 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;ba
     <section class="panel chat">
       <div class="chat-head"><strong>教研对话</strong><span class="status">项目上下文独立</span></div>
       <div class="messages" id="messages"></div>
-      <div class="quick">
-        <button class="q" onclick="fill('金融机构干部，1天，主题是上海国际金融中心建设与跨境金融，请设计上午和下午两门课，并推荐师资。')">国际金融中心测试</button>
-        <button class="q" onclick="fill('国企中层，3天，AI与数字化转型，每天上午下午各1讲，请生成完整课表。')">AI+数字化</button>
-        <button class="q" onclick="fill('农商行中高层，2天，数字金融、风险管理、AI应用，请设计课程并推荐师资。')">农商行专题</button>
-      </div>
       <div class="composer"><div class="box"><textarea id="input" placeholder="输入当前项目的培训需求。新项目请先点击“新建项目”。"></textarea><button class="send" id="send" onclick="sendMessage()">发送 →</button></div></div>
     </section>
 
@@ -86,7 +81,7 @@ function newProject(){saveProjects();const title=prompt('请输入项目/班级�
 function activateProject(id,persist=true){const p=projects.find(x=>x.id===id);if(!p)return;if(currentProject)saveProjects();currentProject=p;history=Array.isArray(p.history)?p.history:[];currentPlan=p.currentPlan||null;sendBtn.disabled=false;if(persist)localStorage.setItem(CURRENT_KEY,p.id);renderProject();renderMessages();if(currentPlan)renderPlan(currentPlan,false);else emptyResult();closeProjects()}
 function renderProject(){document.getElementById('projectName').textContent=currentProject?.title||'当前项目';document.getElementById('customerName').textContent='客户名称：'+(currentProject?.customerName||'未填写')}
 function renderMessages(){messagesEl.innerHTML='';if(!history.length){addMessage(defaultAssistantText(),'ai',false);return}history.forEach(m=>addMessage(m.content,m.role==='user'?'user':'ai',false))}
-function openProjects(){saveProjects();const list=document.getElementById('projectsList');list.innerHTML=projects.length?projects.map(p=>`<div class="project-item ${p.id===currentProject?.id?'active':''}" onclick="activateProject('${p.id}')"><b>${esc(p.title)}</b><small>${esc(p.customerName?'客户：'+p.customerName:'未填写客户')} ｜ 更新：${new Date(p.updatedAt||p.createdAt).toLocaleString()}</small></div>`).join(''):'暂无历史项目';document.getElementById('projectsModal').classList.add('show')}
+function openProjects(){saveProjects();const recent=[...projects].sort((a,b)=>(Date.parse(b.updatedAt||b.createdAt)||0)-(Date.parse(a.updatedAt||a.createdAt)||0)).slice(0,10);const list=document.getElementById('projectsList');list.innerHTML=recent.length?recent.map(p=>`<div class="project-item ${p.id===currentProject?.id?'active':''}" onclick="activateProject('${p.id}')"><b>${esc(p.title)}</b><small>${esc(p.customerName?'客户：'+p.customerName:'未填写客户')} ｜ 更新：${new Date(p.updatedAt||p.createdAt).toLocaleString()}</small></div>`).join(''):'暂无历史项目';document.getElementById('projectsModal').classList.add('show')}
 function closeProjects(){document.getElementById('projectsModal').classList.remove('show')}
 function fill(text){input.value=text;input.focus()}
 function addMessage(text,role,save=false){const el=document.createElement('div');el.className=`msg ${role}`;el.textContent=text;messagesEl.appendChild(el);messagesEl.scrollTop=messagesEl.scrollHeight;if(save){history.push({role:role==='user'?'user':'assistant',content:text});saveProjects()}return el}

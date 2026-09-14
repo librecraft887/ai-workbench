@@ -10,7 +10,7 @@ export function createBochaSearch({ apiKey, fetchImpl = fetch }) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query, freshness: 'noLimit', summary: true, count: 8 })
+      body: JSON.stringify({ query, freshness: 'oneYear', summary: true, count: 8 })
     });
 
     const data = await response.json();

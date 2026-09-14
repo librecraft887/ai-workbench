@@ -33,11 +33,13 @@ test('page, copy and Word use client language, complete overview and two-charact
   assert.match(page, /教学方式/);
   assert.match(page, /预期学习成果/);
   assert.doesNotMatch(page, /<b>—<\/b>/);
+  assert.doesNotMatch(page, /课程场次/);
   const copied = vm.runInContext('planText()', context);
   assert.match(copied, /一、项目背景/);
   assert.match(copied, /二、客户需求分析/);
   assert.match(copied, /三、方案设计逻辑/);
   assert.doesNotMatch(copied, /原始长摘要/);
+  assert.doesNotMatch(copied, /课程场次/);
   assert.doesNotMatch(copied, /\[S1\]|结合公开资料|正式课表均来自|公开资料参考/);
   assert.match(copied, /　　客户重视数据应用。\n\n　　本项目连接业务背景与培训目标。/);
   await vm.runInContext('exportDocx()', context);
@@ -54,6 +56,7 @@ test('page, copy and Word use client language, complete overview and two-charact
   assert.doesNotMatch(rels, /TargetMode="External"/);
   assert.match(xml, /教学方式/);
   assert.match(xml, /预期学习成果/);
+  assert.doesNotMatch(xml, /课程场次/);
   context.fixture.formal_schedule[0].evidence_sources = [{ title: '课程相关资料', url: 'https://example.test/report' }];
   vm.runInContext('renderPlan(currentPlan,false)',context);
   assert.match(nodes.get('resultBody').innerHTML, /查看依据/);
@@ -77,4 +80,11 @@ test('page, copy and Word use client language, complete overview and two-charact
   assert.equal(vm.runInContext('currentPlan.requirement_summary.goals', context), '项目B的目标');
   assert.equal(context.projectA.currentPlan.assistant_message, '项目A处理完成');
   assert.equal(vm.runInContext('history.length', context), 0);
+  context.recentFixtures=Array.from({length:12},(_,i)=>({id:`recent${i}`,title:`历史方案${i}`,updatedAt:new Date(Date.UTC(2026,8,1,i)).toISOString()}));
+  vm.runInContext('currentProject=null;projects=recentFixtures;openProjects()',context);
+  const recent=nodes.get('projectsList').innerHTML;
+  assert.equal((recent.match(/class="project-item /g)||[]).length,10);
+  assert.ok(recent.indexOf('历史方案11')<recent.indexOf('历史方案10'));
+  assert.doesNotMatch(recent, /<b>历史方案[01]<\/b>/);
+  assert.equal(vm.runInContext('projects.length',context),12);
 });

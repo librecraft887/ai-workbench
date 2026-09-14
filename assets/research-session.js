@@ -10,7 +10,7 @@
   const REQUEST_FIELDS = ['customer_name', 'skip_research', 'audience', 'industry', 'theme', 'days', 'sessions', 'goals', 'business_challenges', 'learner_context', 'preferences'];
 
   function researchRequestFingerprint(request = {}) {
-    return JSON.stringify(Object.fromEntries(REQUEST_FIELDS.map(field => [field, String(request?.[field] ?? '').trim()])));
+    return JSON.stringify({ policy: 'recent-year-v1', research_day: new Date().toISOString().slice(0,10), ...Object.fromEntries(REQUEST_FIELDS.map(field => [field, String(request?.[field] ?? '').trim()])) });
   }
 
   function isActiveProject(initiatingProject, activeProject) {
