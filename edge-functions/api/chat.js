@@ -80,13 +80,208 @@ async function callDeepSeek(apiKey, messages, maxTokens = 1800) {
 }
 
 
-export async function callDeepSeekWebResearch(apiKey, customerName, {
-  fetchImpl = fetch,
-  timeoutMs = 35000
-} = {}) {
-  const instructions = `你是企业/机构培训项目前期公开资料调研助手。必须先使用联网搜索工具，再根据搜索到的公开网页作答。\n\n事实规则：\n1. 只能使用本次联网搜索实际找到的公开信息，不得使用模型记忆补充客户事实。\n2. 优先客户官网、政府官网、官方新闻稿、权威媒体；普通网页仅作补充。\n3. 不得把推测写成客户内部事实或真实需求。\n4. 来源 URL 必须来自本次搜索结果，不得编造 URL。\n5. 无可靠依据的字段留空。\n6. 只输出严格 JSON。`;
+function normalizedString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
 
-  const input = `请调研客户“${customerName}”，重点检索：机构性质/主营或职责、公开战略重点、2025-2026近期重点工作、数字化/人工智能/金融科技/人才队伍建设等与培训设计可能相关的公开信息。\n\n输出 JSON：\n{\n  "background":"1-2段客户背景，只写搜索结果支持的事实",\n  "training_relevance":"1段与培训方案设计相关的公开背景线索。必须用‘结合公开资料可关注…’这类分析口径，不得宣称为客户未明确表达的内部需求",\n  "sources":[\n    {\n      "title":"网页标题",\n      "url":"本次搜索结果中的真实URL",\n      "published_at":"能确认则填写，否则空字符串",\n      "summary":"该来源实际支持的1句关键信息"\n    }\n  ]\n}\n\n最多保留8条最可靠、最相关来源。`;
+function normalizedArray(value) {
+  return Array.isArray(value)
+    ? value.map(normalizedString).filter(Boolean)
+    : [];
+}
+
+function normalizedSourceUrl(value) {
+  const url = normalizedString(value);
+  if (!/^https?:\/\//i.test(url)) return "";
+
+  try {
+    return new URL(url).toString();
+  } catch {
+    return "";
+  }
+}
+
+function normalizedSourceProvider(value) {
+  const provider = normalizedString(value);
+  return ["backup", "deepseek_web_search"].includes(provider) ? provider : "";
+}
+
+function collectCitationUrls(output) {
+  const urls = new Set();
+  const collect = value => {
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const url = normalizedSourceUrl(value.url || value.href);
+    if (url) urls.add(url);
+    Object.values(value).forEach(child => {
+      if (child && typeof child === "object") collect(child);
+    });
+  };
+
+  for (const item of Array.isArray(output) ? output : []) {
+    if (item?.type === "message") {
+      for (const part of Array.isArray(item?.content) ? item.content : []) {
+        collect(part?.annotations);
+        collect(part?.citations);
+        collect(part?.sources);
+        collect(part?.references);
+      }
+      continue;
+    }
+
+    if (/search|citation/i.test(String(item?.type || ""))) collect(item);
+  }
+
+  return urls;
+}
+
+function normalizeTrainingIntelligence(result, citationUrls) {
+  const requireCitation = citationUrls instanceof Set;
+  const sourceIdMap = new Map();
+  const sources = [];
+
+  for (const source of Array.isArray(result?.sources) ? result.sources : []) {
+    const url = normalizedSourceUrl(source?.url);
+    if (!url || (requireCitation && !citationUrls.has(url)) || sources.length >= 8) continue;
+
+    const originalId = normalizedString(source?.source_id).toUpperCase();
+    const sourceId = `S${sources.length + 1}`;
+    if (originalId && !sourceIdMap.has(originalId)) {
+      sourceIdMap.set(originalId, sourceId);
+    }
+    sourceIdMap.set(sourceId, sourceId);
+
+    const sourceType = normalizedString(source?.source_type).toLowerCase();
+    const provider = normalizedSourceProvider(source?.provider);
+    sources.push({
+      source_id: sourceId,
+      title: normalizedString(source?.title),
+      url,
+      published_at: normalizedString(source?.published_at),
+      source_type: ["official", "government", "media", "other"].includes(sourceType)
+        ? sourceType
+        : "other",
+      evidence: normalizedString(source?.evidence || source?.summary || source?.content),
+      ...(provider ? { provider } : {})
+    });
+  }
+
+  const normalizeSourceIds = value => [...new Set(
+    normalizedArray(value)
+      .map(sourceId => sourceIdMap.get(sourceId.toUpperCase()))
+      .filter(Boolean)
+  )];
+
+  const trainingImplications = (Array.isArray(result?.training_implications)
+    ? result.training_implications
+    : [])
+    .map(implication => ({
+      point: normalizedString(implication?.point),
+      basis: normalizedString(implication?.basis),
+      source_ids: normalizeSourceIds(implication?.source_ids)
+    }))
+    .filter(implication => implication.source_ids.length > 0);
+
+  return {
+    customer_profile: {
+      institution_type: normalizedString(result?.customer_profile?.institution_type),
+      business_scope: normalizedString(result?.customer_profile?.business_scope),
+      strategic_priorities: normalizedArray(result?.customer_profile?.strategic_priorities),
+      recent_business_signals: normalizedArray(result?.customer_profile?.recent_business_signals)
+    },
+    talent_development: {
+      public_training_signals: normalizedArray(result?.talent_development?.public_training_signals),
+      capability_signals: normalizedArray(result?.talent_development?.capability_signals),
+      talent_programs: normalizedArray(result?.talent_development?.talent_programs)
+    },
+    training_implications: trainingImplications,
+    sources
+  };
+}
+
+export function buildResearchPrompt(customerName, request = {}) {
+  const trainingRequest = {
+    audience: normalizedString(request?.audience),
+    industry: normalizedString(request?.industry),
+    theme: normalizedString(request?.theme),
+    days: normalizedString(request?.days),
+    sessions: normalizedString(request?.sessions),
+    goals: normalizedString(request?.goals)
+  };
+
+  return `请调研客户“${normalizedString(customerName)}”，围绕本次培训需求检索公开资料。
+
+本次培训需求：
+${JSON.stringify(trainingRequest, null, 2)}
+
+重点覆盖以下范围：
+1. 战略：中长期战略、年度重点与近期重点工作；
+2. 业务：机构性质、主营业务/核心职责，以及与主题相关的业务变化；
+3. 人才培养：公开的人才队伍、干部培养和培训体系信息；
+4. 能力建设：数字化、人工智能、金融科技、岗位能力等公开线索；
+5. 培训设计：结合培训对象、主题、天数、场次和目标提出有依据的课程设计启示。
+
+事实规则：
+1. 只能使用本次联网搜索实际找到的公开信息，不得使用模型记忆补充客户事实。
+2. 优先客户官网、政府/监管官网、官方新闻稿和权威媒体；普通网页仅作补充。
+3. 不得把推测写成客户内部事实或已明确需求。培训设计启示只能使用“结合公开资料可关注”的分析口径。
+4. 每条来源 URL 必须来自本次搜索结果，不得编造 URL；无可靠依据的字段留空字符串或空数组。
+5. 每条 training_implications 必须引用至少一个 sources 中的 source_id；没有可靠来源时不要输出该启示。
+6. 只输出严格 JSON，不要输出 Markdown 代码块或 JSON 之外的文字。输出对象只能包含 customer_profile、talent_development、training_implications、sources 四个字段。
+
+输出 JSON：
+{
+  "customer_profile": {
+    "institution_type": "",
+    "business_scope": "",
+    "strategic_priorities": [],
+    "recent_business_signals": []
+  },
+  "talent_development": {
+    "public_training_signals": [],
+    "capability_signals": [],
+    "talent_programs": []
+  },
+  "training_implications": [
+    { "point": "", "basis": "", "source_ids": ["S1"] }
+  ],
+  "sources": [
+    {
+      "source_id": "S1",
+      "title": "",
+      "url": "",
+      "published_at": "",
+      "source_type": "official|government|media|other",
+      "evidence": ""
+    }
+  ]
+}
+
+最多保留 8 条最可靠、最相关来源。`;
+}
+
+function isWebResearchOptions(value) {
+  return value && typeof value === "object" && (
+    Object.hasOwn(value, "fetchImpl") || Object.hasOwn(value, "timeoutMs")
+  );
+}
+
+export async function callDeepSeekWebResearch(apiKey, customerName, request = {}, options = {}) {
+  if (isWebResearchOptions(request) && !isWebResearchOptions(options)) {
+    options = request;
+    request = {};
+  }
+
+  const {
+    fetchImpl = fetch,
+    timeoutMs = 35000
+  } = options;
+  const instructions = `你是企业/机构培训项目前期公开资料调研助手。必须先使用联网搜索工具，再根据搜索到的公开网页作答。\n\n事实规则：\n1. 只能使用本次联网搜索实际找到的公开信息，不得使用模型记忆补充客户事实。\n2. 优先客户官网、政府官网、官方新闻稿、权威媒体；普通网页仅作补充。\n3. 不得把推测写成客户内部事实或真实需求。\n4. 来源 URL 必须来自本次搜索结果，不得编造 URL。\n5. 无可靠依据的字段留空。\n6. 只输出严格 JSON。`;
+  const input = buildResearchPrompt(customerName, request);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -146,41 +341,68 @@ export async function callDeepSeekWebResearch(apiKey, customerName, {
     throw new Error("DeepSeek 联网调研未返回有效结构化结果");
   }
 
-  return parsed;
+  return normalizeTrainingIntelligence(parsed, collectCitationUrls(data?.output));
 }
 
-async function researchCustomer(deepseekKey, customerName, bochaKey) {
+async function researchCustomer(deepseekKey, customerName, bochaKey, request = {}) {
   if (!deepseekKey) {
     return {
       research_available: false,
       customer_name: customerName,
       status: "failed",
+      provider: "",
       user_message: "客户公开资料调研尚未启用。",
       message: "客户公开资料调研尚未启用。",
-      sources: [],
-      background: "",
-      training_relevance: ""
+      ...normalizeTrainingIntelligence()
     };
   }
 
   const bochaSearch = createBochaSearch({ apiKey: bochaKey });
+  let primaryIntelligence = null;
   const research = await runCustomerResearch({
     customerName,
-    primarySearch: () => callDeepSeekWebResearch(deepseekKey, customerName),
+    primarySearch: async () => {
+      primaryIntelligence = await callDeepSeekWebResearch(deepseekKey, customerName, request);
+      return {
+        sources: primaryIntelligence.sources.map(source => ({
+          ...source,
+          summary: source.evidence
+        }))
+      };
+    },
     backupSearch: bochaSearch
-      ? async () => ({
-        sources: await bochaSearch(`${customerName} 机构性质 主营职责 战略重点 近期重点工作 人才 数字化 人工智能`)
+      ? async query => ({
+        sources: await bochaSearch(query)
       })
       : undefined,
     wait: () => new Promise(resolve => setTimeout(resolve, 400))
   });
 
+  const intelligence = research.provider === "deepseek_web_search" && primaryIntelligence
+    ? primaryIntelligence
+    : normalizeTrainingIntelligence(research);
+
   return {
     research_available: true,
     customer_name: customerName,
     researched_at: new Date().toISOString(),
-    ...research,
-    message: research.user_message
+    status: research.status,
+    provider: research.provider || "",
+    user_message: research.user_message,
+    message: research.user_message,
+    ...intelligence
+  };
+}
+
+function researchRequestFromBody(body) {
+  const request = body?.training_request || body?.research_request || body?.requirement_summary || body;
+  return {
+    audience: request?.audience,
+    industry: request?.industry,
+    theme: request?.theme,
+    days: request?.days,
+    sessions: request?.sessions,
+    goals: request?.goals
   };
 }
 
@@ -688,23 +910,25 @@ export async function onRequestPost(context) {
     if (body?.action === "research_customer") {
       const customerName = String(body.customer_name || "").trim();
       if (!customerName) return json({ error: "customer_name 不能为空" }, 400);
+      const researchRequest = researchRequestFromBody(body);
       try {
         const research = await researchCustomer(
           deepseekKey,
           customerName,
-          bochaKey
+          bochaKey,
+          researchRequest
         );
         return json(research);
       } catch {
         return json({
           research_available: Boolean(deepseekKey),
           customer_name: customerName,
+          researched_at: new Date().toISOString(),
           status: "retryable_failure",
-          background: "",
-          training_relevance: "",
-          sources: [],
+          provider: "",
           user_message: "客户公开资料暂未获取成功，课程方案已继续生成，可点击“重新调研客户”后再试。",
-          message: "客户公开资料暂未获取成功，课程方案已继续生成，可点击“重新调研客户”后再试。"
+          message: "客户公开资料暂未获取成功，课程方案已继续生成，可点击“重新调研客户”后再试。",
+          ...normalizeTrainingIntelligence()
         });
       }
     }
