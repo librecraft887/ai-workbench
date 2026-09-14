@@ -57,6 +57,7 @@ test('page, copy and Word use client language, complete overview and two-charact
   assert.match(xml, /教学方式/);
   assert.match(xml, /预期学习成果/);
   assert.doesNotMatch(xml, /课程场次/);
+  assert.doesNotMatch(xml, /客户：示例客户/);
   context.fixture.formal_schedule[0].evidence_sources = [{ title: '课程相关资料', url: 'https://example.test/report' }];
   vm.runInContext('renderPlan(currentPlan,false)',context);
   assert.match(nodes.get('resultBody').innerHTML, /查看依据/);

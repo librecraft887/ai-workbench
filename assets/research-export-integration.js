@@ -77,7 +77,6 @@
     const sections = proposalSections(currentPlan);
     let body = '';
     body += wP(`${currentProject?.title || 'AI教研助手'}培训方案`, 'Title');
-    if (currentProject?.customerName) body += wP(`客户：${currentProject.customerName}`, 'Normal');
     let section = 1;
     sections.forEach(item => {
       body += wP(heading(section, item.heading), 'Heading1');
