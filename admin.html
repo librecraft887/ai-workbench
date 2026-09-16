@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>资源台账 · AI教研工作台</title><link rel="stylesheet" href="./assets/admin.css"></head>
+<body><header><a href="./index.html">AI 教研工作台</a><nav><a href="./assistant.html">进入配课</a><button id="logout" hidden>退出登录</button></nav></header>
+<main><div class="eyebrow">RESOURCE WORKSPACE</div><h1>让资料成为可用的教学资源</h1><p class="intro">上传课程表、师资表或中介师资表，查看识别结果后发布。前台将优先从已发布资料中配课。</p>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="login"><h2>登录工作台</h2><form id="login-form"><label for="password">访问口令</label><input id="password" type="password" autocomplete="current-password" required minlength="16" placeholder="输入管理员或业务访问口令"><button type="submit">登录</button></form><small>口令仅用于建立安全会话，不保存在浏览器本地。</small></section>
+<div id="workspace" hidden><div class="stats"><section><span>已发布师资记录</span><strong id="teacher-count">0</strong></section><section><span>已发布课程记录</span><strong id="course-count">0</strong></section><section><span>待发布批次</span><strong id="draft-count">0</strong></section></div>
+<section><h2>上传资料</h2><p>支持 Excel（.xlsx）和 UTF-8 CSV，每个文件不超过5MB、每批不超过2000条。课程表、师资表默认识别为“库内师资”；中介师资表会识别为“中介师资”。</p><p><a href="./templates/课程表模板.csv" download>下载课程表模板</a>　<a href="./templates/师资表模板.csv" download>下载师资表模板</a></p><label class="drop" for="files">选择文件，可一次选择多份<input id="files" type="file" accept=".xlsx,.csv" multiple></label><p class="muted">“师资来源”可填写：库内师资、中介师资。网络检索由系统自动标注。原文件在本机读取；机构联系方式不进入台账。</p></section>
+<section><div class="toolbar"><h2>导入与发布记录</h2><button id="refresh">刷新</button></div><div id="batches"></div></section>
+<section id="preview" hidden><h2 id="preview-title">识别结果</h2><div id="issues"></div><div class="table-wrap"><table><thead><tr><th>类型</th><th>姓名</th><th>单位 / 经纪机构</th><th>课程 / 研究方向</th><th>资料位置</th></tr></thead><tbody id="records"></tbody></table></div><p class="muted">如需修改资料内容，请在原表修正后上传新批次，核对后撤回旧批次。已保存方案不自动改变。</p></section></div></main>
+<script src="./assets/jszip.min.js"></script><script type="module" src="./assets/admin.js"></script></body></html>

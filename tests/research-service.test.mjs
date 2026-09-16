@@ -31,7 +31,8 @@ test('uses the backup provider after two retryable primary timeouts', async () =
   });
 
   assert.equal(primaryAttempts, 2);
-  assert.equal(backupAttempts, 1);
+  // The current workflow intentionally queries four research dimensions.
+  assert.equal(backupAttempts, 4);
   assert.equal(result.status, 'succeeded');
   assert.equal(result.provider, 'backup');
   assert.equal(result.sources[0].url, 'https://www.sufe.edu.cn/');
@@ -51,7 +52,8 @@ test('uses the backup provider after a non-retryable primary failure', async () 
     }
   });
 
-  assert.equal(backupAttempts, 1);
+  // The current workflow intentionally queries four research dimensions.
+  assert.equal(backupAttempts, 4);
   assert.equal(result.status, 'succeeded');
   assert.equal(result.provider, 'backup');
 });

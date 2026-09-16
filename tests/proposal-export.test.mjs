@@ -13,7 +13,7 @@ test('page, copy and Word use client language, complete overview and two-charact
   let downloaded;
   const context = vm.createContext({ JSZip, Blob, console, setTimeout: () => 0, clearTimeout() {}, localStorage: { getItem: () => null, setItem() {} }, navigator: {}, document: { getElementById(id) { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }, createElement: node }, capture(blob) { downloaded = blob; } });
   context.window = context;
-  for (const file of ['research-session.js', 'training-workflow.js', 'client-copy.js', 'proposal-display.js', 'research-display.js']) vm.runInContext(await readFile(new URL(`../assets/${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['research-session.js', 'training-workflow.js', 'client-copy.js', 'proposal-display.js', 'research-display.js', 'ledger-display.js']) vm.runInContext(await readFile(new URL(`../assets/${file}`, import.meta.url), 'utf8'), context);
   const html = await readFile(new URL('../assistant.html', import.meta.url), 'utf8');
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
   vm.runInContext(await readFile(new URL('../assets/research-export-integration.js', import.meta.url), 'utf8'), context);
@@ -21,7 +21,7 @@ test('page, copy and Word use client language, complete overview and two-charact
     project_background: { text: '结合公开资料，客户重视数据应用。[S1]\n\n本项目连接业务背景与培训目标。', source_ids: ['S1'] },
     client_needs_analysis: { text: '根据本次培训需求，建议围绕数据判断与业务应用形成学习目标。', source_ids: [] },
     design_logic: { text: '先建立分析框架，再通过“数据决策”模块练习岗位应用。正式课表均来自库内师资与课程，未安排外部候选。\n\n具体配课方案如下。', source_ids: [] }
-  }, formal_schedule: [{ day: '第1天', period: '上午', module: '数据决策', course_title: '数据驱动经营', teacher_name: '库内老师', reason: '结合公开资料，回应数据应用问题，并形成经营判断能力。[S1]', evidence: '正式测试关系' }], customer_research: { sources: [{ source_id: 'S1', title: '年度报告', url: 'https://example.test/report?a=1&b=2', evidence: '不应堆在正文中的原始长摘要。' }] } };
+  }, formal_schedule: [{ day: '第1天', period: '上午', module: '数据决策', course_title: '数据驱动经营', teacher_name: '库内老师', notice: '存在同名师资，请确认身份', reason: '结合公开资料，回应数据应用问题，并形成经营判断能力。[S1]', evidence: '正式测试关系' }], customer_research: { sources: [{ source_id: 'S1', title: '年度报告', url: 'https://example.test/report?a=1&b=2', evidence: '不应堆在正文中的原始长摘要。' }] } };
   vm.runInContext("currentPlan=fixture;currentProject={id:'P1',title:'培训项目',customerName:'示例客户',history:[]};downloadBlob=(blob)=>capture(blob);renderPlan(currentPlan,false)", context);
   const page = nodes.get('resultBody').innerHTML;
   assert.ok(page.indexOf('项目背景') < page.indexOf('客户需求分析'));
@@ -31,10 +31,15 @@ test('page, copy and Word use client language, complete overview and two-charact
   assert.doesNotMatch(page, /正式测试关系|查看依据|结合公开资料|\[S1\]|正式课表均来自/);
   assert.match(page, /text-indent:2em/);
   assert.match(page, /教学方式/);
+  assert.match(page, /师资来源/);
+  assert.match(page, /库内师资/);
+  assert.match(page, /存在同名师资/);
   assert.match(page, /预期学习成果/);
   assert.doesNotMatch(page, /<b>—<\/b>/);
   assert.doesNotMatch(page, /课程场次/);
   const copied = vm.runInContext('planText()', context);
+  assert.match(copied, /存在同名师资/);
+  assert.match(copied, /师资来源：库内师资/);
   assert.match(copied, /一、项目背景/);
   assert.match(copied, /二、客户需求分析/);
   assert.match(copied, /三、方案设计逻辑/);

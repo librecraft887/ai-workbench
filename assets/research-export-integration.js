@@ -39,7 +39,8 @@
 
     lines.push('', heading(section, '配课方案'));
     (currentPlan.formal_schedule || []).forEach((row, index) => {
-      lines.push(`${index + 1}. ${row.day || ''} ${row.period || ''}｜${row.course_title || '待匹配'}｜${row.teacher_name || '待匹配'}${row.institution ? `｜${row.institution}` : ''}`);
+      lines.push(`${index + 1}. ${row.day || ''} ${row.period || ''}｜${row.course_title || '待匹配'}｜${row.teacher_name || '待匹配'}｜师资来源：${row.source_type || '库内师资'}${row.institution ? `｜${row.institution}` : ''}`);
+      if (row.notice) lines.push(`确认提示：${row.notice}`);
       if (row.reason) lines.push(`课程设计理由：${cleanClientText(row.reason)}`);
     });
     section += 1;
@@ -60,7 +61,8 @@
         lines.push(`${index + 1}. ${candidate.teacher_name || ''}｜${candidate.institution || ''}`);
         if (candidate.suggested_topic) lines.push(`建议专题：${candidate.suggested_topic}`);
         if (candidate.reason) lines.push(`推荐理由：${cleanClientText(candidate.reason)}`);
-        lines.push('说明：师资及授课安排需进一步沟通确认。');
+        lines.push(`说明：${candidate.notice || '师资及授课安排需进一步沟通确认。'}`);
+        (candidate.sources || []).forEach(s => lines.push(`来源：${s.title} ${s.url}`));
       });
     }
     return lines.join('\n');
@@ -90,16 +92,17 @@
     body += wTable(info, [1800, 7000]);
 
     body += wP(heading(section, '配课方案'), 'Heading1');
-    const rows = [['时间', '课程模块', '课程名称', '推荐师资', '单位', '推荐理由']];
+    const rows = [['时间', '课程模块', '课程名称', '推荐师资', '师资来源', '单位', '推荐理由']];
     (currentPlan.formal_schedule || []).forEach(row => rows.push([
       `${row.day || ''} ${row.period || ''}`.trim(),
       row.module || '',
       row.course_title || '待匹配',
       row.teacher_name || '待匹配',
+      row.source_type || '库内师资',
       row.institution || '',
-      cleanClientText(row.reason)
+      [cleanClientText(row.reason), row.notice ? `确认提示：${row.notice}` : ''].filter(Boolean).join('；')
     ]));
-    body += wTable(rows, [900, 1100, 2200, 1000, 1500, 2500]);
+    body += wTable(rows, [850, 1000, 1900, 950, 1100, 1300, 1900]);
     section += 1;
 
     const profiles = uniqueProfiles().filter(profile => profile.profile);
@@ -119,7 +122,8 @@
         body += wP(`${index + 1}. ${candidate.teacher_name || ''}｜${candidate.institution || ''}`, 'Normal', true);
         if (candidate.suggested_topic) body += wP(`建议专题：${candidate.suggested_topic}`);
         if (candidate.reason) body += proposalParagraph(`推荐理由：${cleanClientText(candidate.reason)}`);
-        body += wP('说明：师资及授课安排需进一步沟通确认。');
+        body += wP(`说明：${candidate.notice || '师资及授课安排需进一步沟通确认。'}`);
+        (candidate.sources || []).forEach(s => { body += wP(`来源：${s.title} ${s.url}`); });
       });
     }
 
