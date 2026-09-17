@@ -3,6 +3,18 @@ import {database,listImports,ledgerState} from '../lib/ledger-store.js';
 import {digest,equalSecret,hashPassword,issueSession,readSession,sameOrigin,sessionCookie,verifyPassword} from '../lib/admin-auth.js';
 const reply=(body,status=200,headers={})=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...headers}});
 const validId=id=>/^[a-f0-9]{64}$/.test(id||'');
+async function allowLogin(env){
+ const rows=await database(env,'wb_login_guard?id=eq.1&select=window_start,attempts');
+ const now=new Date(),windowMs=10*60*1000;
+ if(!rows.length){
+  await database(env,'wb_login_guard',{method:'POST',body:{id:1,window_start:now.toISOString(),attempts:1}});
+  return true;
+ }
+ const row=rows[0],started=new Date(row.window_start),expired=Number.isNaN(started.getTime())||now-started>windowMs;
+ const attempts=expired?1:Number(row.attempts||0)+1;
+ await database(env,'wb_login_guard?id=eq.1',{method:'PATCH',body:{window_start:expired?now.toISOString():row.window_start,attempts}});
+ return attempts<=30;
+}
 export async function onRequestGet({request,env}){
  const session=await readSession(request,env);
  if(!session)return reply({error:'请先登录工作台'},401);
@@ -25,12 +37,7 @@ export async function onRequestPost({request,env}){
   if(body.action==='login'){
    if(!env.ADMIN_SESSION_SECRET||env.ADMIN_SESSION_SECRET.length<32)return reply({error:'登录服务尚未完成配置'},503);
    stage='检查登录频率';
-   const allowedResult=await database(env,'rpc/wb_allow_login',{method:'POST',body:{}});
-   const allowed=allowedResult===true
-    || allowedResult?.wb_allow_login===true
-    || allowedResult?.[0]?.wb_allow_login===true
-    || allowedResult?.[0]===true;
-   if(!allowed)return reply({error:'登录尝试过多，请10分钟后再试'},429);
+   if(!await allowLogin(env))return reply({error:'登录尝试过多，请10分钟后再试'},429);
    const username=String(body.username||'').trim();
    if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)||String(body.password||'').length<12)return reply({error:'账号或密码不正确'},401);
    stage='查询管理员账号';
