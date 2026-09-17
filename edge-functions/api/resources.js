@@ -17,12 +17,14 @@ export async function onRequestGet({request,env}){
 }
 export async function onRequestPost({request,env}){
  if(!sameOrigin(request))return reply({error:'请求来源不正确'},403);
+ let stage='读取请求';
  try{
   if(!request.headers.get('Content-Type')?.includes('application/json'))return reply({error:'请求格式不正确'},415);
   const text=await request.text();if(new TextEncoder().encode(text).length>2_000_000)return reply({error:'导入内容超过2MB，请拆分'},413);
   const body=JSON.parse(text);
   if(body.action==='login'){
    if(!env.ADMIN_SESSION_SECRET||env.ADMIN_SESSION_SECRET.length<32)return reply({error:'登录服务尚未完成配置'},503);
+   stage='检查登录频率';
    const allowedResult=await database(env,'rpc/wb_allow_login',{method:'POST',body:{}});
    const allowed=allowedResult===true
     || allowedResult?.wb_allow_login===true
@@ -31,13 +33,16 @@ export async function onRequestPost({request,env}){
    if(!allowed)return reply({error:'登录尝试过多，请10分钟后再试'},429);
    const username=String(body.username||'').trim();
    if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)||String(body.password||'').length<12)return reply({error:'账号或密码不正确'},401);
+   stage='查询管理员账号';
    let users=await database(env,`wb_admin_users?username=eq.${encodeURIComponent(username)}&select=*`),user=users[0];
    if(!user&&env.ADMIN_BOOTSTRAP_USERNAME===username&&env.ADMIN_BOOTSTRAP_PASSWORD?.length>=12&&await equalSecret(body.password||'',env.ADMIN_BOOTSTRAP_PASSWORD)){
     const password=await hashPassword(body.password),id=crypto.randomUUID();
     const created={id,username,display_name:String(env.ADMIN_BOOTSTRAP_DISPLAY_NAME||username).slice(0,100),password_salt:password.salt,password_hash:password.hash,role:'super_admin',status:'active'};
+    stage='创建首个管理员账号';
     await database(env,'wb_admin_users',{method:'POST',body:created});user=created;
    }
    if(!user||user.status!=='active'||!await verifyPassword(body.password||'',user.password_salt,user.password_hash))return reply({error:'账号或密码不正确'},401);
+   stage='更新登录时间';
    await database(env,`wb_admin_users?id=eq.${user.id}`,{method:'PATCH',body:{last_login_at:new Date().toISOString(),updated_at:new Date().toISOString()}});
    return reply({role:user.role},200,{'Set-Cookie':sessionCookie(await issueSession(env,user.role,user.id))});
   }
@@ -90,5 +95,5 @@ export async function onRequestPost({request,env}){
    return reply({ok:true});
   }
   return reply({error:'未知操作'},400);
- }catch(error){if(error instanceof SyntaxError)return reply({error:'JSON格式错误'},400);return reply({error:'处理未完成。请检查文件格式、数据库迁移和服务配置后重试'},503);}
+ }catch(error){if(error instanceof SyntaxError)return reply({error:'JSON格式错误'},400);return reply({error:`处理未完成：${stage}失败。请检查数据库迁移和服务权限后重试`},503);}
 }
