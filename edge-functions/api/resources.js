@@ -23,8 +23,12 @@ export async function onRequestPost({request,env}){
   const body=JSON.parse(text);
   if(body.action==='login'){
    if(!env.ADMIN_SESSION_SECRET||env.ADMIN_SESSION_SECRET.length<32)return reply({error:'登录服务尚未完成配置'},503);
-   const allowed=await database(env,'rpc/wb_allow_login',{method:'POST',body:{}});
-   if(allowed!==true)return reply({error:'登录尝试过多，请10分钟后再试'},429);
+   const allowedResult=await database(env,'rpc/wb_allow_login',{method:'POST',body:{}});
+   const allowed=allowedResult===true
+    || allowedResult?.wb_allow_login===true
+    || allowedResult?.[0]?.wb_allow_login===true
+    || allowedResult?.[0]===true;
+   if(!allowed)return reply({error:'登录尝试过多，请10分钟后再试'},429);
    const username=String(body.username||'').trim();
    if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)||String(body.password||'').length<12)return reply({error:'账号或密码不正确'},401);
    let users=await database(env,`wb_admin_users?username=eq.${encodeURIComponent(username)}&select=*`),user=users[0];
